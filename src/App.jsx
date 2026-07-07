@@ -7,6 +7,7 @@ import AdminSignup from './pages/AdminSignup';
 import AdminDashboard from './pages/AdminDashboard';
 import Dashboard from './pages/Dashboard';
 import SharedFileView from './pages/SharedFileView';
+import ConditionalShareView from './pages/ConditionalShareView';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/share/:id" element={<SharedFileView />} />
+        <Route path="/share-link/:shareCode" element={<ConditionalShareView />} />
       </Routes>
     </Router>
   );

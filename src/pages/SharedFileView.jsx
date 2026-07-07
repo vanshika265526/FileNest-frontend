@@ -118,9 +118,25 @@ const SharedFileView = () => {
                         </button>
                     </div>
                 </div>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', width: '100%', height: '100%' }}>
                     {fileData.category === 'image' || fileData.type.startsWith('image/') ? (
                         <img src={`${getFileUrl(fileData.url)}${getFileUrl(fileData.url).includes('?') ? '&' : '?'}token=${localStorage.getItem('token')}`} style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '16px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }} alt={fileData.name} />
+                    ) : fileData.category === 'pdf' ? (
+                        <div style={{ width: '80vw', height: '75vh', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                            <iframe 
+                                src={`${getFileUrl(fileData.url)}${getFileUrl(fileData.url).includes('?') ? '&' : '?'}token=${localStorage.getItem('token')}`}
+                                title={fileData.name}
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                            />
+                        </div>
+                    ) : (fileData.category === 'document' && fileData.url.startsWith('http')) ? (
+                        <div style={{ width: '80vw', height: '75vh', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                            <iframe 
+                                src={`https://docs.google.com/viewer?url=${encodeURIComponent(fileData.url)}&embedded=true`}
+                                title={fileData.name}
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                            />
+                        </div>
                     ) : (
                         <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
                             <FileText size={80} style={{ margin: '0 auto 2rem', opacity: 0.2 }} />

@@ -4,9 +4,9 @@ import {
     MoreHorizontal, ChevronDown, Check,
     UserPlus, ShieldCheck, Globe, Search,
     FileIcon, ImageIcon, FileTextIcon, VideoIcon,
-    Loader2
+    Loader2, Clock, Lock, MapPin, EyeOff, Trash
 } from 'lucide-react';
-import API_BASE_URL, { FRONTEND_BASE_URL, getFileUrl } from '../../api/apiConfig';
+import API_BASE_URL, { getFileUrl } from '../../api/apiConfig';
 
 const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }) => {
     const [email, setEmail] = useState('');
@@ -16,11 +16,118 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
     const [error, setError] = useState(null);
     const [copySuccess, setCopySuccess] = useState(false);
 
+    // Conditional Share Links state
+    const [activeTab, setActiveTab] = useState('invite'); // 'invite' or 'conditional'
+    const [shareLinks, setShareLinks] = useState([]);
+    const [loadingLinks, setLoadingLinks] = useState(false);
+    const [expiresInHours, setExpiresInHours] = useState('');
+    const [maxUses, setMaxUses] = useState('');
+    const [geoRestriction, setGeoRestriction] = useState(false);
+    const [timeRestrictionEnabled, setTimeRestrictionEnabled] = useState(false);
+    const [antiScreenshot, setAntiScreenshot] = useState(false);
+    const [watermarkText, setWatermarkText] = useState('');
+    const [verificationType, setVerificationType] = useState('none');
+    const [recipientEmail, setRecipientEmail] = useState('');
+    const [isCreatingLink, setIsCreatingLink] = useState(false);
+    const [linkError, setLinkError] = useState('');
+    const [copiedLinkId, setCopiedLinkId] = useState(null);
+
     useEffect(() => {
         setFile(initialFile);
         setError(null);
         setCopySuccess(false);
-    }, [initialFile]);
+        if (isOpen && initialFile?._id) {
+            fetchShareLinks(initialFile._id);
+        }
+    }, [initialFile, isOpen]);
+
+    const fetchShareLinks = async (fileId) => {
+        setLoadingLinks(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE_URL}/api/files/${fileId}/share-links`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setShareLinks(data);
+            }
+        } catch (err) {
+            console.error('Fetch share links error:', err);
+        } finally {
+            setLoadingLinks(false);
+        }
+    };
+
+    const handleCreateShareLink = async (e) => {
+        e.preventDefault();
+        setIsCreatingLink(true);
+        setLinkError('');
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE_URL}/api/files/${file._id}/share-links`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    expiresInHours: expiresInHours ? parseFloat(expiresInHours) : null,
+                    maxUses: maxUses ? parseInt(maxUses) : null,
+                    geoRestriction,
+                    timeRestrictionEnabled,
+                    antiScreenshot,
+                    watermarkText: watermarkText || null,
+                    verificationType,
+                    recipientEmail: recipientEmail || null
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setShareLinks(prev => [data, ...prev]);
+                // Reset form
+                setExpiresInHours('');
+                setMaxUses('');
+                setGeoRestriction(false);
+                setTimeRestrictionEnabled(false);
+                setAntiScreenshot(false);
+                setWatermarkText('');
+                setVerificationType('none');
+                setRecipientEmail('');
+            } else {
+                setLinkError(data.message || 'Failed to create share link');
+            }
+        } catch (err) {
+            setLinkError('Connection error');
+        } finally {
+            setIsCreatingLink(false);
+        }
+    };
+
+    const handleDeleteShareLink = async (linkId) => {
+        if (!confirm('Are you sure you want to revoke this sharing link?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE_URL}/api/files/share-links/${linkId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setShareLinks(prev => prev.filter(link => link._id !== linkId));
+            } else {
+                alert('Failed to revoke link');
+            }
+        } catch (err) {
+            console.error('Delete link error:', err);
+        }
+    };
+
+    const handleCopyConditionalLink = (link) => {
+        const fullUrl = `${window.location.origin}/share-link/${link.shareCode}`;
+        navigator.clipboard.writeText(fullUrl);
+        setCopiedLinkId(link._id);
+        setTimeout(() => setCopiedLinkId(null), 2000);
+    };
 
     if (!isOpen || !file) return null;
 
@@ -134,6 +241,10 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
     
     const previewUrl = `${basePreviewUrl}${basePreviewUrl.includes('?') ? '&' : '?'}token=${token}`;
 
+    const docPreviewUrl = file.category === 'document' && file.url.startsWith('http')
+        ? `https://docs.google.com/viewer?url=${encodeURIComponent(file.url)}&embedded=true`
+        : null;
+
     return (
         <div style={{
             position: 'fixed',
@@ -142,43 +253,32 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0, 0, 0, 0.4)',
-            backdropFilter: 'blur(8px)',
-            padding: '2rem'
-        }} onClick={onClose}>
+            background: 'rgba(9, 13, 22, 0.4)',
+            backdropFilter: 'blur(10px)'
+        }}>
+            {/* Modal Card */}
             <div style={{
                 background: '#f8fafc',
-                width: '100%',
-                maxWidth: '1000px',
-                height: '85vh',
-                borderRadius: '20px',
+                width: '94%',
+                maxWidth: '1200px',
+                height: '88vh',
+                borderRadius: '30px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
                 display: 'flex',
                 overflow: 'hidden',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-                animation: 'modalSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-            }} onClick={e => e.stopPropagation()}>
+                border: '1px solid rgba(255,255,255,0.8)'
+            }} className="modal-container">
 
-                {/* Left Panel: Preview */}
-                <div style={{
-                    flex: 1.2,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    background: 'white',
-                    borderRight: '1px solid #e2e8f0',
-                    overflowY: 'auto'
-                }}>
-                    {/* Preview Header */}
-                    <div style={{ padding: '1.25rem 1.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                            <div style={{ padding: '0.4rem', background: '#f1f5f9', borderRadius: '8px' }}>
-                                {getIcon(file.category)}
-                            </div>
-                            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>{file.name}</h2>
+                {/* Left Panel: Preview & Info */}
+                <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column', borderRight: '1px solid #e2e8f0' }}>
+                    {/* Header */}
+                    <div style={{ padding: '1.5rem 1.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ background: '#f1f5f9', padding: '0.6rem', borderRadius: '12px' }}>
+                            {getIcon(file.category)}
                         </div>
-                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                            <button className="icon-btn-modal" title="Search in file"><Search size={16} /></button>
-                            <button className="icon-btn-modal" onClick={handleDownload} title="Download file"><Download size={16} /></button>
-                            <button className="icon-btn-modal" onClick={handleMaximize} title="Open in full view"><Maximize2 size={16} /></button>
+                        <div>
+                            <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{file.name}</h2>
+                            <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.1rem' }}>Uploaded by {file.owner?.fullName || 'You'}</p>
                         </div>
                     </div>
 
@@ -188,7 +288,7 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
                         margin: '0 1.5rem 1rem',
                         background: '#f8fafc',
                         borderRadius: '16px',
-                        border: file.category === 'pdf' ? '1px solid #e2e8f0' : '2px dashed #e2e8f0',
+                        border: (file.category === 'pdf' || file.category === 'document') ? '1px solid #e2e8f0' : '2px dashed #e2e8f0',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -204,6 +304,12 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
                         ) : file.category === 'pdf' ? (
                             <iframe 
                                 src={previewUrl} 
+                                title={file.name}
+                                style={{ width: '100%', height: '100%', border: 'none', borderRadius: '15px' }}
+                            />
+                        ) : (file.category === 'document' && docPreviewUrl) ? (
+                            <iframe 
+                                src={docPreviewUrl} 
                                 title={file.name}
                                 style={{ width: '100%', height: '100%', border: 'none', borderRadius: '15px' }}
                             />
@@ -226,118 +332,309 @@ const FileDetailModal = ({ file: initialFile, isOpen, onClose, user, onRefresh }
                 <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
                         <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', padding: '0.4rem', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
-                    </div>
-
-                    {/* Share Settings Card */}
-                    <div style={{ background: 'white', borderRadius: '20px', border: '1px solid #e2e8f0', padding: '1.25rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                    </div>                    {/* Share Settings Card */}
+                    <div style={{ background: 'white', borderRadius: '20px', border: '1px solid #e2e8f0', padding: '1.25rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowY: 'auto' }}>
                         <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-                                <Share2 size={18} color="var(--accent-secondary)" />
-                                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Share Settings</h3>
+                            {/* Tab Switcher */}
+                            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1.25rem', gap: '1.5rem' }}>
+                                <button
+                                    onClick={() => setActiveTab('invite')}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        borderBottom: activeTab === 'invite' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                                        color: activeTab === 'invite' ? '#1e293b' : '#64748b',
+                                        paddingBottom: '0.6rem',
+                                        fontWeight: 700,
+                                        fontSize: '0.8rem',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Standard Invite
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('conditional')}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        borderBottom: activeTab === 'conditional' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                                        color: activeTab === 'conditional' ? '#1e293b' : '#64748b',
+                                        paddingBottom: '0.6rem',
+                                        fontWeight: 700,
+                                        fontSize: '0.8rem',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Contextual Sharing
+                                </button>
                             </div>
 
-                            <div style={{ marginBottom: '1.25rem' }}>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>Invite People</label>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <div style={{ flex: 1, position: 'relative' }}>
-                                        <Search size={14} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                        <input
-                                            type="text"
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            placeholder="Email addresses..."
-                                            style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '12px', border: error ? '1px solid #ef4444' : '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }}
-                                        />
+                            {activeTab === 'invite' ? (
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
+                                        <Share2 size={18} color="var(--accent-secondary)" />
+                                        <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>Invite Settings</h3>
                                     </div>
-                                    <button
-                                        className="btn btn-primary"
-                                        onClick={handleInvite}
-                                        disabled={isSharing || !email}
-                                        style={{ padding: '0.65rem 1rem', fontSize: '0.85rem', minWidth: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                    >
-                                        {isSharing ? <Loader2 size={16} className="animate-spin" /> : 'Invite'}
-                                    </button>
-                                </div>
-                                {error && <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: '0.4rem' }}>{error}</p>}
-                            </div>
 
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.75rem' }}>Who has access</label>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                    {/* Current User */}
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,122,0,0.1)', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem' }}>{user?.fullName?.charAt(0) || 'U'}</div>
-                                            <div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{user?.fullName} (You)</div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{user?.email}</div>
+                                    <div style={{ marginBottom: '1.25rem' }}>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>Invite People</label>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <div style={{ flex: 1, position: 'relative' }}>
+                                                <Search size={14} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                                <input
+                                                    type="text"
+                                                    value={email}
+                                                    onChange={(e) => setEmail(e.target.value)}
+                                                    placeholder="Email addresses..."
+                                                    style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '12px', border: error ? '1px solid #ef4444' : '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none' }}
+                                                />
                                             </div>
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={handleInvite}
+                                                disabled={isSharing || !email}
+                                                style={{ padding: '0.65rem 1rem', fontSize: '0.8rem', minWidth: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            >
+                                                {isSharing ? <Loader2 size={16} className="animate-spin" /> : 'Invite'}
+                                            </button>
                                         </div>
-                                        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', background: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>Owner</span>
+                                        {error && <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: '0.4rem' }}>{error}</p>}
                                     </div>
 
-                                    {/* Shared Users */}
-                                    {(file.sharedWith || []).map(share => {
-                                        // Handle both potential data structures (populated object or raw ID)
-                                        const userId = share.user?._id || (typeof share.user === 'string' ? share.user : null);
-                                        const userName = share.user?.fullName || 'Shared User';
-                                        const userEmail = share.user?.email || '';
-                                        const userRole = share.permission || 'view';
+                                    <div style={{ marginBottom: '1.5rem' }}>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.75rem' }}>Who has access</label>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                            {/* Current User */}
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,122,0,0.1)', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem' }}>{user?.fullName?.charAt(0) || 'U'}</div>
+                                                    <div>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{user?.fullName} (You)</div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{user?.email}</div>
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', background: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>Owner</span>
+                                            </div>
 
-                                        if (!userId) return null;
+                                            {/* Shared Users */}
+                                            {(file.sharedWith || []).map(share => {
+                                                const userId = share.user?._id || (typeof share.user === 'string' ? share.user : null);
+                                                const userName = share.user?.fullName || 'Shared User';
+                                                const userEmail = share.user?.email || '';
+                                                const userRole = share.permission || 'view';
 
-                                        return (
-                                            <AccessItem
-                                                key={userId}
-                                                id={userId}
-                                                name={userName}
-                                                email={userEmail}
-                                                role={userRole}
-                                                onPermissionChange={handleUpdatePermission}
-                                            />
-                                        );
-                                    })}
+                                                if (!userId) return null;
+
+                                                return (
+                                                    <AccessItem
+                                                        key={userId}
+                                                        id={userId}
+                                                        name={userName}
+                                                        email={userEmail}
+                                                        role={userRole}
+                                                        onPermissionChange={handleUpdatePermission}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '1.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.6rem' }}>Public Link</label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.4rem 0.6rem' }}>
+                                            <Globe size={12} color="#94a3b8" />
+                                            <div style={{ flex: 1, fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {`${API_BASE_URL}/api/files/v/${file._id}`}
+                                            </div>
+                                            <button
+                                                style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.25rem 0.5rem', fontSize: '0.7rem', fontWeight: 600, color: copySuccess ? '#10B981' : 'var(--accent-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', transition: 'all 0.2s' }}
+                                                onClick={handleCopyLink}
+                                            >
+                                                {copySuccess ? <Check size={10} /> : <Copy size={10} />} {copySuccess ? 'Copied' : 'Copy'}
+                                            </button>
+                                        </div>
+                                        <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.7rem', color: '#64748b' }}>
+                                            <Globe size={12} color={file.isPublic ? "#10B981" : "#94a3b8"} />
+                                            <span>{file.isPublic ? "Public link is active" : "Only invited people"}</span>
+                                            <button
+                                                onClick={handleTogglePublic}
+                                                style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent-primary)', fontWeight: 600, cursor: 'pointer' }}
+                                            >
+                                                {file.isPublic ? "Disable" : "Enable"}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+                            ) : (
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
+                                        <Lock size={18} color="var(--accent-primary)" />
+                                        <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>Conditional Share Links</h3>
+                                    </div>
 
-                        <div style={{ marginTop: 'auto' }}>
-                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.6rem' }}>Public Link</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.4rem 0.6rem' }}>
-                                <Globe size={12} color="#94a3b8" />
-                                <div style={{ flex: 1, fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {`${API_BASE_URL}/api/files/v/${file._id}`}
+                                    {/* Create link form */}
+                                    <form onSubmit={handleCreateShareLink} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Create Sharing Link with Conditions:</div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={expiresInHours === '2'} onChange={(e) => setExpiresInHours(e.target.checked ? '2' : '')} />
+                                                <span>Expire after 2 hours</span>
+                                            </label>
+
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={maxUses === '1'} onChange={(e) => setMaxUses(e.target.checked ? '1' : '')} />
+                                                <span>Single-use only</span>
+                                            </label>
+
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={geoRestriction} onChange={(e) => setGeoRestriction(e.target.checked)} />
+                                                <span>Only open in India</span>
+                                            </label>
+
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={timeRestrictionEnabled} onChange={(e) => setTimeRestrictionEnabled(e.target.checked)} />
+                                                <span>Only 9 AM – 5 PM IST</span>
+                                            </label>
+
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer', gridColumn: 'span 2' }}>
+                                                <input type="checkbox" checked={antiScreenshot} onChange={(e) => setAntiScreenshot(e.target.checked)} />
+                                                <span>Anti-screenshot (Block and Blur)</span>
+                                            </label>
+                                        </div>
+
+                                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '0.6rem' }}>
+                                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>Security Verification</label>
+                                            <select
+                                                value={verificationType}
+                                                onChange={(e) => setVerificationType(e.target.value)}
+                                                style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', outline: 'none', background: 'white' }}
+                                            >
+                                                <option value="none">No Verification (Public with conditions)</option>
+                                                <option value="otp">Requires Email OTP</option>
+                                                <option value="face">Requires Face Biometric Verification</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'flex', alignItems: 'center', justifySelf: 'start', gap: '0.4rem', fontSize: '0.75rem', color: '#1e293b', cursor: 'pointer', marginBottom: '0.25rem' }}>
+                                                <input type="checkbox" checked={!!watermarkText} onChange={(e) => setWatermarkText(e.target.checked ? 'recipient' : '')} />
+                                                <span>Watermark preview with recipient's email</span>
+                                            </label>
+                                        </div>
+
+                                        {(verificationType === 'otp' || watermarkText) && (
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>Recipient's Email Address</label>
+                                                <input
+                                                    type="email"
+                                                    value={recipientEmail}
+                                                    onChange={(e) => setRecipientEmail(e.target.value)}
+                                                    placeholder="recipient@example.com"
+                                                    required
+                                                    style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', outline: 'none' }}
+                                                />
+                                            </div>
+                                        )}
+
+                                        <button
+                                            type="submit"
+                                            className="btn btn-primary"
+                                            disabled={isCreatingLink}
+                                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginTop: '0.25rem' }}
+                                        >
+                                            {isCreatingLink ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+                                            Generate Protected Link
+                                        </button>
+                                        {linkError && <p style={{ color: '#ef4444', fontSize: '0.7rem', textAlign: 'center', margin: 0 }}>{linkError}</p>}
+                                    </form>
+
+                                    {/* Active Links list */}
+                                    <div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.5rem' }}>Active Contextual Links ({shareLinks.length})</div>
+                                        
+                                        {loadingLinks ? (
+                                            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}>
+                                                <Loader2 size={20} className="animate-spin" color="var(--accent-primary)" />
+                                            </div>
+                                        ) : shareLinks.length === 0 ? (
+                                            <p style={{ fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center', padding: '1rem', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>No conditional sharing links active.</p>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '2px' }}>
+                                                {shareLinks.map(link => (
+                                                    <div key={link._id} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.6rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b', fontFamily: 'monospace' }}>
+                                                                Code: {link.shareCode}
+                                                            </span>
+                                                            <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                                                                <button
+                                                                    onClick={() => handleCopyConditionalLink(link)}
+                                                                    style={{ background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '0.2rem 0.4rem', fontSize: '0.65rem', cursor: 'pointer', color: copiedLinkId === link._id ? '#10B981' : 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                                                                >
+                                                                    {copiedLinkId === link._id ? <Check size={10} /> : <Copy size={10} />}
+                                                                    {copiedLinkId === link._id ? 'Copied' : 'Copy'}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteShareLink(link._id)}
+                                                                    style={{ background: 'white', border: '1px solid #ef4444', borderRadius: '6px', padding: '0.2rem 0.4rem', fontSize: '0.65rem', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}
+                                                                >
+                                                                    <Trash size={10} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Constraints Icons */}
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center' }}>
+                                                            {link.expiresAt && (
+                                                                <span title="Expires soon" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#fee2e2', color: '#ef4444', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                                                    <Clock size={10} /> Expiring
+                                                                </span>
+                                                            )}
+                                                            {link.maxUses !== null && (
+                                                                <span title="Limited uses" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#fef3c7', color: '#d97706', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                                                    <Lock size={10} /> One-Time
+                                                                </span>
+                                                            )}
+                                                            {link.geoRestriction && (
+                                                                <span title="India only" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#dbeafe', color: '#2563eb', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                                                    <MapPin size={10} /> India Only
+                                                                </span>
+                                                            )}
+                                                            {link.timeRestriction?.enabled && (
+                                                                <span title="9 AM - 5 PM IST only" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#e0f2fe', color: '#0369a1', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                                                    <Clock size={10} /> 9am-5pm
+                                                                </span>
+                                                            )}
+                                                            {link.antiScreenshot && (
+                                                                <span title="Anti-screenshot enabled" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#f3e8ff', color: '#7e22ce', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
+                                                                    <EyeOff size={10} /> Anti-Screenshot
+                                                                </span>
+                                                            )}
+                                                            {link.verificationType !== 'none' && (
+                                                                <span title={`${link.verificationType.toUpperCase()} Verification`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6', background: '#e2e8f0', color: '#475569', padding: '0.1rem 0.3rem', borderRadius: '4px', textTransform: 'uppercase' }}>
+                                                                    <ShieldCheck size={10} /> {link.verificationType}
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                                            Opened: <strong style={{ color: '#1e293b' }}>{link.usesCount}</strong> / {link.maxUses !== null ? link.maxUses : '∞'} times
+                                                            {link.recipientEmail && ` • Recipient: ${link.recipientEmail}`}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                                <button
-                                    style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.25rem 0.5rem', fontSize: '0.7rem', fontWeight: 600, color: copySuccess ? '#10B981' : 'var(--accent-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', transition: 'all 0.2s' }}
-                                    onClick={handleCopyLink}
-                                >
-                                    {copySuccess ? <Check size={10} /> : <Copy size={10} />} {copySuccess ? 'Copied' : 'Copy'}
-                                </button>
-                            </div>
-                            <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.7rem', color: '#64748b' }}>
-                                <Globe size={12} color={file.isPublic ? "#10B981" : "#94a3b8"} />
-                                <span>{file.isPublic ? "Public link is active" : "Only invited people"}</span>
-                                <button
-                                    onClick={handleTogglePublic}
-                                    style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent-primary)', fontWeight: 600, cursor: 'pointer' }}
-                                >
-                                    {file.isPublic ? "Disable" : "Enable"}
-                                </button>
-                            </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* Encrypted Sharing Tip */}
-                    <div style={{ marginTop: '1rem', background: 'rgba(57, 133, 255, 0.03)', border: '1px solid rgba(57, 133, 255, 0.1)', borderRadius: '14px', padding: '0.75rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                        <div style={{ padding: '0.4rem', background: 'rgba(57, 133, 255, 0.1)', borderRadius: '8px', color: '#3985FF' }}>
-                            <ShieldCheck size={18} />
-                        </div>
-                        <div>
-                            <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.1rem' }}>Encrypted Sharing</h4>
-                            <p style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.3 }}>Shared links are protected with AES-256 bit encryption.</p>
-                        </div>
-                    </div>
+
                 </div>
             </div>
 
